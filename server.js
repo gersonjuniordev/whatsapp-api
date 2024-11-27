@@ -1,6 +1,6 @@
 const express = require('express');
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const qrcode = require('qrcode');
 const app = express();
 
 // Configurações do Express
@@ -40,14 +40,72 @@ const client = new Client({
     }
 });
 
-// Eventos do WhatsApp
-client.on('qr', (qr) => {
-    console.log('QR Code recebido:');
-    qrcode.generate(qr, { small: true });
+let qrCodeData = null;
+
+// Rota para página web do QR code
+app.get('/qr', (req, res) => {
+    if (!qrCodeData) {
+        res.send('QR Code ainda não está disponível. Aguarde...');
+        return;
+    }
+    
+    res.send(`
+        <html>
+            <head>
+                <title>WhatsApp QR Code</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>
+                    body {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        min-height: 100vh;
+                        margin: 0;
+                        background-color: #f0f2f5;
+                        font-family: Arial, sans-serif;
+                    }
+                    img {
+                        max-width: 300px;
+                        margin: 20px;
+                    }
+                    .status {
+                        margin: 20px;
+                        padding: 10px;
+                        border-radius: 5px;
+                        background-color: #fff;
+                        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="status">Escaneie o QR Code com seu WhatsApp</div>
+                <img src="${qrCodeData}" alt="QR Code">
+                <script>
+                    // Recarrega a página a cada 30 segundos
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 30000);
+                </script>
+            </body>
+        </html>
+    `);
+});
+
+// Modifique o evento do QR code
+client.on('qr', async (qr) => {
+    console.log('QR Code recebido');
+    try {
+        qrCodeData = await qrcode.toDataURL(qr);
+        console.log('QR Code convertido para URL de dados');
+    } catch (err) {
+        console.error('Erro ao gerar QR code:', err);
+    }
 });
 
 client.on('ready', () => {
     whatsappConnected = true;
+    qrCodeData = null; // Limpa o QR code quando conectado
     console.log('WhatsApp conectado e pronto!');
 });
 
