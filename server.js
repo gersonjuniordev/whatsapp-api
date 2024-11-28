@@ -63,6 +63,37 @@ client.on('auth_failure', (err) => {
     whatsappConnected = false;
 });
 
+// Função para manter o serviço ativo
+const keepAlive = () => {
+    setInterval(() => {
+        fetch('https://seu-app.onrender.com/ping')
+            .catch(console.error);
+    }, 840000); // 14 minutos
+};
+
+// Rota de ping
+app.get('/ping', (req, res) => {
+    res.send('pong');
+});
+
+// Adicionar reconexão automática
+client.on('disconnected', async () => {
+    console.log('Cliente desconectado. Tentando reconectar...');
+    whatsappConnected = false;
+    qrCodeData = null;
+    
+    // Tenta reconectar várias vezes
+    for(let i = 0; i < 5; i++) {
+        try {
+            await client.initialize();
+            break;
+        } catch (error) {
+            console.error(`Tentativa ${i+1} falhou:`, error);
+            await new Promise(r => setTimeout(r, 5000));
+        }
+    }
+});
+
 // Rota para o QR Code
 app.get('/qr', (req, res) => {
     if (whatsappConnected) {
@@ -164,9 +195,37 @@ app.listen(PORT, '0.0.0.0', () => {
     client.initialize().catch(err => {
         console.error('Erro ao inicializar o WhatsApp:', err);
     });
+    keepAlive(); // Inicia o sistema de keep-alive
 });
 
 // Tratamento de erros não capturados
 process.on('unhandledRejection', (error) => {
-    console.error('Erro não tratado:', error);
+    console.error('Erro não capturado:', error);
 });
+
+process.on('unhandledRejection', (error) => {
+    console.error('Promise rejeitada não tratada:', error);
+});
+
+// Reinicialização automática em caso de erro crítico
+process.on('SIGTERM', () => {
+    console.log('Recebido SIGTERM. Tentando reconectar...');
+    client.initialize().catch(console.error);
+});
+
+// Tratamento de erros global
+process.on('uncaughtException', (error) => {
+    console.error('Erro não capturado:', error);
+});
+
+// Verificação periódica do estado da conexão
+setInterval(async () => {
+    if (!whatsappConnected) {
+        console.log('Verificação: WhatsApp desconectado. Tentando reconectar...');
+        try {
+            await client.initialize();
+        } catch (error) {
+            console.error('Erro na reconexão:', error);
+        }
+    }
+}, 300000); // Verifica a cada 5 minutos
