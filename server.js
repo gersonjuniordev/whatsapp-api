@@ -65,8 +65,9 @@ client.on('auth_failure', (err) => {
 
 // Função para manter o serviço ativo
 const keepAlive = () => {
+    const url = process.env.RENDER_EXTERNAL_URL || 'https://whatsapp-api-xdtw.onrender.com';
     setInterval(() => {
-        fetch('https://seu-app.onrender.com/ping')
+        fetch(`${url}/ping`)
             .catch(console.error);
     }, 840000); // 14 minutos
 };
@@ -185,6 +186,11 @@ app.get('/qr', (req, res) => {
             </body>
         </html>
     `);
+});
+
+// Rota de teste de conexão
+app.get('/teste-conexao', (req, res) => {
+    res.status(200).json({ status: 'online' });
 });
 
 // Inicialização
