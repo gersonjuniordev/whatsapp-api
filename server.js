@@ -3,52 +3,114 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const app = express();
 
+let qrCodeData = null;
+let whatsappConnected = false;
+
 // Configurações do Express
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Configuração de CORS
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    res.header('Content-Type', 'application/json');
-    
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    next();
-});
-
-// Estado do WhatsApp
-let whatsappConnected = false;
-
-// Cliente WhatsApp
+// Cliente WhatsApp com configurações otimizadas
 const client = new Client({
-    authStrategy: new LocalAuth(),
+    authStrategy: new LocalAuth({
+        clientId: "whatsapp-api"
+    }),
     puppeteer: {
+        headless: true,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
+            '--disable-gpu',
             '--no-zygote',
-            '--disable-gpu'
-        ],
-        headless: true
+            '--single-process', // <- Importante
+            '--disable-extensions'
+        ]
     }
 });
 
-let qrCodeData = null;
-
-// Rota para página web do QR code
-app.get('/qr', (req, res) => {
-    if (!qrCodeData) {
-        res.send('QR Code ainda não está disponível. Aguarde...');
-        return;
+// Eventos do WhatsApp
+client.on('qr', async (qr) => {
+    console.log('Novo QR Code recebido');
+    try {
+        qrCodeData = await qrcode.toDataURL(qr, {
+            errorCorrectionLevel: 'H',
+            margin: 4,
+            scale: 10
+        });
+        console.log('QR Code gerado com sucesso');
+    } catch (err) {
+        console.error('Erro ao gerar QR code:', err);
     }
-    
+});
+
+client.on('ready', () => {
+    console.log('Cliente WhatsApp está pronto!');
+    whatsappConnected = true;
+    qrCodeData = null;
+});
+
+client.on('authenticated', () => {
+    console.log('WhatsApp autenticado');
+    whatsappConnected = true;
+    qrCodeData = null;
+});
+
+client.on('auth_failure', (err) => {
+    console.error('Falha na autenticação:', err);
+    whatsappConnected = false;
+});
+
+// Rota para o QR Code
+app.get('/qr', (req, res) => {
+    if (whatsappConnected) {
+        return res.send(`
+            <html>
+                <body style="display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5;">
+                    <div style="text-align: center; padding: 20px; background-color: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                        <h2>WhatsApp já está conectado!</h2>
+                    </div>
+                </body>
+            </html>
+        `);
+    }
+
+    if (!qrCodeData) {
+        return res.send(`
+            <html>
+                <head>
+                    <meta http-equiv="refresh" content="5">
+                    <style>
+                        body { 
+                            display: flex; 
+                            justify-content: center; 
+                            align-items: center; 
+                            height: 100vh; 
+                            margin: 0; 
+                            background-color: #f0f2f5;
+                            font-family: Arial, sans-serif;
+                        }
+                        .message {
+                            text-align: center;
+                            padding: 20px;
+                            background-color: white;
+                            border-radius: 10px;
+                            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="message">
+                        <h2>Aguardando QR Code...</h2>
+                        <p>A página será atualizada automaticamente.</p>
+                    </div>
+                </body>
+            </html>
+        `);
+    }
+
     res.send(`
         <html>
             <head>
@@ -65,130 +127,38 @@ app.get('/qr', (req, res) => {
                         background-color: #f0f2f5;
                         font-family: Arial, sans-serif;
                     }
+                    .container {
+                        background: white;
+                        padding: 20px;
+                        border-radius: 10px;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                        text-align: center;
+                    }
                     img {
                         max-width: 300px;
-                        margin: 20px;
-                    }
-                    .status {
-                        margin: 20px;
-                        padding: 10px;
-                        border-radius: 5px;
-                        background-color: #fff;
-                        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                        height: auto;
                     }
                 </style>
             </head>
             <body>
-                <div class="status">Escaneie o QR Code com seu WhatsApp</div>
-                <img src="${qrCodeData}" alt="QR Code">
+                <div class="container">
+                    <h2>Escaneie o QR Code</h2>
+                    <img src="${qrCodeData}" alt="QR Code">
+                    <p>Use o WhatsApp no seu celular para escanear</p>
+                </div>
                 <script>
-                    // Recarrega a página a cada 30 segundos
                     setTimeout(() => {
                         window.location.reload();
-                    }, 30000);
+                    }, 20000);
                 </script>
             </body>
         </html>
     `);
 });
 
-// Modifique o evento do QR code
-client.on('qr', async (qr) => {
-    console.log('QR Code recebido');
-    try {
-        qrCodeData = await qrcode.toDataURL(qr);
-        console.log('QR Code convertido para URL de dados');
-    } catch (err) {
-        console.error('Erro ao gerar QR code:', err);
-    }
-});
-
-client.on('ready', () => {
-    whatsappConnected = true;
-    qrCodeData = null; // Limpa o QR code quando conectado
-    console.log('WhatsApp conectado e pronto!');
-});
-
-client.on('disconnected', () => {
-    whatsappConnected = false;
-    console.log('WhatsApp desconectado!');
-    // Tentar reconectar
-    setTimeout(() => {
-        client.initialize().catch(console.error);
-    }, 5000);
-});
-
-// Rota para enviar mensagem
-app.post('/enviar-mensagem', async (req, res) => {
-    try {
-        console.log('Corpo da requisição:', JSON.stringify(req.body, null, 2));
-
-        if (!whatsappConnected) {
-            console.log('WhatsApp não está conectado');
-            return res.status(503).json({
-                success: false,
-                error: 'WhatsApp não está conectado'
-            });
-        }
-
-        const { groupId, mensagem } = req.body;
-
-        if (!groupId || !mensagem) {
-            console.log('Campos obrigatórios faltando');
-            return res.status(400).json({
-                success: false,
-                error: 'groupId e mensagem são obrigatórios'
-            });
-        }
-
-        console.log('Tentando enviar mensagem para:', groupId);
-
-        const chat = await client.getChatById(groupId).catch(err => {
-            console.error('Erro ao buscar chat:', err);
-            return null;
-        });
-
-        if (!chat) {
-            console.log('Grupo não encontrado:', groupId);
-            return res.status(404).json({
-                success: false,
-                error: 'Grupo não encontrado'
-            });
-        }
-
-        await chat.sendMessage(mensagem);
-        console.log('Mensagem enviada com sucesso para:', groupId);
-
-        res.json({
-            success: true,
-            message: 'Mensagem enviada com sucesso'
-        });
-    } catch (error) {
-        console.error('Erro detalhado:', {
-            message: error.message,
-            stack: error.stack,
-            name: error.name
-        });
-        
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            errorType: error.name
-        });
-    }
-});
-
-// Rota de teste de conexão
-app.get('/teste-conexao', (req, res) => {
-    res.json({
-        success: true,
-        whatsappStatus: whatsappConnected ? 'connected' : 'disconnected',
-        timestamp: new Date().toISOString()
-    });
-});
-
 // Inicialização
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor rodando na porta ${PORT}`);
     client.initialize().catch(err => {
